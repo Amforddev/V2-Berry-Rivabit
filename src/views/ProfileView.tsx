@@ -1,0 +1,433 @@
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { User, Coins, Trophy, ChevronRight, LogOut, Copy, CheckCircle2, History, Edit2, Gift, Flame } from 'lucide-react';
+import { View, UserProfile, Redemption, SurveySubmission } from '../types';
+import { logOut, auth } from '../firebase';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import { TIER_DEFINITIONS } from '../tiers';
+
+interface ProfileViewProps {
+  userProfile: UserProfile;
+  redemptions: Redemption[];
+  submissions: SurveySubmission[];
+  showToast: (title: string, message: string) => void;
+  setView: (view: View) => void;
+}
+
+const ProfileView: React.FC<ProfileViewProps> = ({ userProfile, redemptions, submissions, showToast, setView }) => {
+  const [copied, setCopied] = useState(false);
+  const [showHistory, setShowHistory] = useState<'none' | 'surveys' | 'redemptions'>('none');
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editName, setEditName] = useState(userProfile.displayName || '');
+
+  const handleSaveName = async () => {
+    if (editName.trim() && editName !== userProfile.displayName) {
+      try {
+        await updateDoc(doc(db, 'users', userProfile.uid), {
+          displayName: editName.trim()
+        });
+      } catch (e) {
+        console.error("Failed to update name", e);
+      }
+    }
+    setIsEditingName(false);
+  };
+
+  const copyReferral = () => {
+    navigator.clipboard.writeText(userProfile.referralCode);
+    setCopied(true);
+    showToast('Copied!', 'Referral code copied to clipboard');
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleLogout = async () => {
+    try {
+      if (auth.currentUser) {
+        await logOut();
+      }
+    } catch(e) {
+      console.error(e);
+    }
+    setView('onboarding');
+  };
+
+  const handleResetDemo = async () => {
+    try {
+      await updateDoc(doc(db, 'users', userProfile.uid), {
+        kycVerified: false,
+        phoneVerified: false,
+        profileCompleted: false,
+        profileData: {}, // Clear survey/profile answers
+        berry: 0,
+        walletBalance: 0,
+        referralCount: 0
+      });
+      // Clear local stored profile builder progress
+      localStorage.removeItem(`profile_progress_${userProfile.uid}`);
+      window.location.reload();
+    } catch (e) {
+      console.error("Failed to reset demo state", e);
+      showToast('Error', 'Failed to reset demo state');
+    }
+  };
+
+  if (showHistory !== 'none') {
+// ... existing showHistory code ...
+    return (
+      <motion.div 
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -20 }}
+        className="h-full flex flex-col bg-gray-50"
+      >
+        <div className="bg-white px-6 py-4 flex items-center gap-4 border-b border-gray-100 shadow-sm z-10">
+          <button onClick={() => setShowHistory('none')} className="p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors">
+            <ChevronRight size={24} className="rotate-180" />
+          </button>
+          <h2 className="text-lg font-semibold text-gray-900">
+            {showHistory === 'surveys' ? 'Survey History' : 'Redemption History'}
+          </h2>
+        </div>
+        <div className="flex-1 p-6 overflow-y-auto space-y-3">
+          {showHistory === 'surveys' && (
+            submissions.length > 0 ? submissions.map(sub => (
+              <div key={sub.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
+                <div>
+                  <h4 className="font-medium text-gray-900 text-base">Survey Completed</h4>
+                  <p className="text-xs text-gray-500 mt-1">{new Date(sub.submittedAt?.toDate() || Date.now()).toLocaleDateString()}</p>
+                </div>
+                <div className="flex items-center gap-1 text-primary font-semibold bg-gray-100 px-3 py-1.5 rounded-full text-sm">
+                  +{sub.berryEarned} Berry
+                </div>
+              </div>
+            )) : <p className="text-gray-500 text-center py-8 text-sm">No surveys completed yet.</p>
+          )}
+
+          {showHistory === 'redemptions' && (
+            redemptions.length > 0 ? redemptions.map(red => (
+              <div key={red.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
+                <div>
+                  <h4 className="font-medium text-gray-900 text-base">{red.rewardTitle}</h4>
+                  <p className="text-xs text-gray-500 mt-1">{new Date(red.redeemedAt?.toDate() || Date.now()).toLocaleDateString()} • {red.status}</p>
+                </div>
+                <div className="flex items-center gap-1 text-gray-700 font-semibold bg-gray-100 px-3 py-1.5 rounded-full text-sm">
+                  -{red.cost} Berry
+                </div>
+              </div>
+            )) : <p className="text-gray-500 text-center py-8 text-sm">No redemptions yet.</p>
+          )}
+        </div>
+      </motion.div>
+    );
+  }
+
+  const allTimeBerry = userProfile.allTimeBerryEarned || userProfile.berry || 0;
+  const currentStreak = userProfile.currentStreak || 0;
+  const currentTierLevel = userProfile.tier || 1;
+  const currentTier = TIER_DEFINITIONS[currentTierLevel as keyof typeof TIER_DEFINITIONS];
+  const nextTierLevel = Math.min(5, currentTierLevel + 1);
+  const nextTier = TIER_DEFINITIONS[nextTierLevel as keyof typeof TIER_DEFINITIONS];
+  const nextTierIsDifferent = nextTierLevel !== currentTierLevel;
+  
+  let berryProgress = 0;
+  if(nextTierIsDifferent) {
+    const range = nextTier.minBerry - currentTier.minBerry;
+    const progress = allTimeBerry - currentTier.minBerry;
+    berryProgress = Math.min(100, Math.max(0, (progress / range) * 100));
+  } else {
+    berryProgress = 100;
+  }
+
+  const Circumference = 2 * Math.PI * 40;
+  const strokeDashoffset = Circumference - (berryProgress / 100) * Circumference;
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 20 }}
+      className="p-6 space-y-6"
+    >
+      <div className="flex flex-col items-center pt-4 pb-2">
+        <div className="w-24 h-24 bg-gray-100 rounded-full p-1 mb-3">
+          <div className="w-full h-full bg-white rounded-full flex items-center justify-center overflow-hidden">
+            {userProfile.photoURL ? (
+              <img src={userProfile.photoURL} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <User size={40} className="text-gray-400" />
+            )}
+          </div>
+        </div>
+        
+        {isEditingName ? (
+          <div className="flex items-center gap-2 mb-1">
+            <input 
+              type="text" 
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-1 text-center font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary"
+              autoFocus
+              onBlur={handleSaveName}
+              onKeyDown={(e) => e.key === 'Enter' && handleSaveName()}
+            />
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 mb-1 cursor-pointer group" onClick={() => setIsEditingName(true)}>
+            <h2 className="text-2xl font-semibold text-gray-900">{userProfile.displayName || 'User'}</h2>
+            <Edit2 size={16} className="text-gray-400 group-hover:text-primary transition-colors" />
+          </div>
+        )}
+        
+        <p className="text-gray-500 text-sm">{userProfile.email || 'Guest User'}</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center">
+          <Coins className="text-primary mb-1" size={24} />
+          <span className="text-2xl font-semibold text-gray-900">{userProfile.berry}</span>
+          <span className="text-xs text-gray-500 mt-1">Total Berry</span>
+        </div>
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center">
+          <Flame className="text-orange-500 mb-1" size={24} />
+          <span className="text-2xl font-semibold text-gray-900">{currentStreak || 0}</span>
+          <span className="text-xs text-gray-500 mt-1">Day Streak</span>
+        </div>
+      </div>
+
+      <div className={`p-6 rounded-3xl border border-gray-100 bg-white relative overflow-hidden shadow-sm`}>
+        {/* Tier Gradient Header */}
+        <div className={`absolute top-0 left-0 right-0 h-2`} style={{ background: `linear-gradient(to right, ${currentTier.main}, transparent)` }} />
+        
+        <div className="flex items-center justify-between mb-6 relative z-10 mt-1">
+          <div>
+            <span className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1.5 block">Current Tier</span>
+            <div className={`text-2xl font-bold ${currentTier.color} flex items-center gap-2`}>
+              <Trophy size={20} />
+              {currentTier.name}
+            </div>
+          </div>
+          <div className="relative w-20 h-20 flex items-center justify-center bg-gray-50 rounded-full border border-gray-100 shadow-inner">
+            <svg className="w-16 h-16 transform -rotate-90" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className={`text-gray-200`} />
+              <circle 
+                cx="50" cy="50" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" 
+                strokeDasharray={Circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round"
+                style={{ color: currentTier.main }}
+                className={`transition-all duration-1000 ease-out`}
+              />
+            </svg>
+            <div className={`absolute inset-0 flex items-center justify-center font-black text-sm text-gray-700`}>
+              {Math.round(berryProgress)}%
+            </div>
+          </div>
+        </div>
+        
+        {nextTierIsDifferent ? (
+          <div className="space-y-3 relative z-10 bg-gray-50 border border-gray-100 p-4 rounded-2xl">
+            <div className="flex items-start gap-3 text-sm">
+              <div className="mt-0.5 bg-white p-1.5 rounded-lg border border-gray-200 shadow-sm">
+                <Coins size={16} className="text-gray-500" />
+              </div>
+              <div className="flex-1 w-full">
+                <p className="font-semibold text-gray-900">{Math.max(0, nextTier.minBerry - allTimeBerry).toLocaleString()} Berry <span className="font-medium text-gray-500">until {nextTier.name}</span></p>
+                <div className="w-full h-2 bg-gray-200 rounded-full mt-2.5 overflow-hidden">
+                   <div className={`h-full`} style={{ width: `${berryProgress}%`, backgroundColor: currentTier.main }} />
+                </div>
+              </div>
+            </div>
+            {currentStreak < nextTier.streakRequired && (
+              <div className="flex items-center gap-2 text-sm text-orange-700 bg-orange-50 border border-orange-100 rounded-xl p-3 font-medium mt-3">
+                <Flame size={16} className="text-orange-500" />
+                Requires {nextTier.streakRequired}-day streak (Current: {currentStreak})
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-sm font-semibold relative z-10 bg-gray-50 p-4 rounded-2xl text-center text-gray-600 border border-gray-100">You've reached the highest tier!</div>
+        )}
+        <div className="mt-4 grid grid-cols-2 gap-3 text-xs relative z-10">
+          <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+            <p className="text-gray-500 mb-0.5 font-medium">Cashout Rate</p>
+            <p className="font-bold text-gray-900">{currentTier.cashoutRate.toLocaleString('en-US', {style: 'currency', currency: 'NGN'})}/berry</p>
+          </div>
+          <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+            <p className="text-gray-500 mb-0.5 font-medium">Draw Access</p>
+            <p className="font-bold text-gray-900">{currentTier.drawAccess}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Achievement Section */}
+      {(userProfile.referralCount || 0) >= 5 && (
+        <motion.div 
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="bg-gradient-to-br from-yellow-400 to-orange-500 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden"
+        >
+          <div className="relative z-10 flex items-center gap-4">
+            <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
+              <Trophy size={32} className="text-white fill-white" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg">Elite Referrer!</h3>
+              <p className="text-sm text-white/90">You've referred 5+ friends. Extra rewards unlocked!</p>
+            </div>
+          </div>
+          <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+        </motion.div>
+      )}
+
+      {/* Referral Section matching the image */}
+      <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
+        <h3 className="font-semibold text-xl text-gray-900 mb-1">We value friendship</h3>
+        <p className="text-gray-500 text-sm mb-6">Follow the steps below and get rewarded</p>
+        
+        <div className="space-y-6 relative before:absolute before:inset-0 before:ml-[15px] before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gray-200 mb-6">
+          <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full border-2 border-gray-200 bg-white text-gray-500 text-sm font-medium shrink-0 z-10">
+              1
+            </div>
+            <div className="w-[calc(100%-3rem)] md:w-[calc(50%-2.5rem)] p-2">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-900 font-medium text-sm">Share your code</span>
+              </div>
+            </div>
+          </div>
+          <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full border-2 border-gray-200 bg-white text-gray-500 text-sm font-medium shrink-0 z-10">
+              2
+            </div>
+            <div className="w-[calc(100%-3rem)] md:w-[calc(50%-2.5rem)] p-2">
+              <span className="text-gray-900 font-medium text-sm">Your friend signs up with your code</span>
+            </div>
+          </div>
+          <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full border-2 border-gray-200 bg-white text-gray-500 text-sm font-medium shrink-0 z-10">
+              3
+            </div>
+            <div className="w-[calc(100%-3rem)] md:w-[calc(50%-2.5rem)] p-2">
+              <span className="text-gray-900 font-medium text-sm">They complete their profile surveys</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-gray-50 rounded-2xl p-4 mb-4">
+          <div className="flex items-start gap-3 mb-3">
+            <div className="mt-0.5"><Coins size={16} className="text-gray-600" /></div>
+            <div>
+              <p className="text-xs text-gray-500">You get</p>
+              <p className="text-sm font-medium text-gray-900">500 Berries</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5">
+              <Gift size={16} className="text-secondary" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">They get</p>
+              <p className="text-sm font-medium text-gray-900">200 Berries</p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="text-center mb-4">
+          <p className="text-xs text-gray-500 mb-1">Refer 5 friends and get extra rewards</p>
+          <div className="flex items-center justify-center gap-2">
+            <div className="flex gap-1">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div 
+                  key={i} 
+                  className={`w-2 h-2 rounded-full ${i <= (userProfile.referralCount || 0) ? 'bg-primary' : 'bg-gray-200'}`} 
+                />
+              ))}
+            </div>
+            <span className="text-xs font-medium text-gray-900">{(userProfile.referralCount || 0)}/5</span>
+          </div>
+          {(userProfile.referralCount || 0) >= 5 && (
+            <div className="flex items-center justify-center gap-1 text-sm font-medium text-secondary mt-2">
+              <CheckCircle2 size={14} /> Achievement Unlocked!
+            </div>
+          )}
+        </div>
+
+        <div className="relative flex flex-col gap-2">
+          <label className="text-sm font-semibold text-gray-900">Your Referral Code</label>
+          <div className="relative flex items-center">
+            <input 
+              type="text" 
+              readOnly 
+              value={userProfile.referralCode}
+              className="w-full bg-gray-50 border-2 border-primary/20 rounded-xl py-4 pl-4 pr-24 text-lg font-bold text-primary tracking-widest focus:outline-none"
+            />
+            <button 
+              onClick={copyReferral}
+              className="absolute right-2 top-2 bottom-2 bg-primary text-white px-6 rounded-lg flex items-center gap-2 hover:bg-primary/90 transition-colors"
+            >
+              {copied ? <CheckCircle2 size={18} /> : <Copy size={18} />}
+              <span className="text-sm font-bold">Copy</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mt-6 flex flex-col">
+        <button 
+          onClick={() => setShowHistory('surveys')}
+          className="w-full flex items-center justify-between p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <History size={20} className="text-gray-600" />
+            <span className="font-medium text-gray-900 text-base">Survey History</span>
+          </div>
+          <ChevronRight size={20} className="text-gray-400" />
+        </button>
+        <button 
+          onClick={() => setShowHistory('redemptions')}
+          className="w-full flex items-center justify-between p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Gift size={20} className="text-gray-600" />
+            <span className="font-medium text-gray-900 text-base">Redemption History</span>
+          </div>
+          <ChevronRight size={20} className="text-gray-400" />
+        </button>
+        <button 
+          onClick={handleLogout}
+          className="w-full flex items-center justify-between p-4 hover:bg-red-50 transition-colors group"
+        >
+          <div className="flex items-center gap-3">
+            <LogOut size={20} className="text-red-500" />
+            <span className="font-medium text-red-500 text-base">Log Out</span>
+          </div>
+        </button>
+      </div>
+
+      <div className="mt-4 p-4 bg-gray-100 rounded-2xl border border-dashed border-gray-300">
+        <p className="text-xs text-gray-500 font-mono mb-2 uppercase tracking-wider">Developer Tools</p>
+        <button 
+          onClick={handleResetDemo}
+          className="w-full bg-white border border-gray-200 text-gray-700 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors mb-2"
+        >
+          Reset Demo State (KYC & Profile)
+        </button>
+        <button 
+          onClick={async () => {
+            try {
+              await updateDoc(doc(db, 'users', userProfile.uid), {
+                berry: 1000000
+              });
+            } catch (e) {
+              console.error("Failed to add berry", e);
+            }
+          }}
+          className="w-full py-3 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 hover:bg-gray-50 transition-colors shadow-sm"
+        >
+          RESET TO 1,000,000 BERRY
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+export default ProfileView;

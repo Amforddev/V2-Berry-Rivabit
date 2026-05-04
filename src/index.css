@@ -1,0 +1,63 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --color-primary: #4A1D3D;
+  --color-secondary: #B76E79;
+  --color-accent: #7D3C5E;
+  --color-kinetic-berry: #B76E79;
+  --color-kinetic-cream: #fbf9ee;
+
+  --animate-gradient: gradient-motion 5s ease infinite;
+
+  @keyframes gradient-motion {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+}
+
+@utility btn-kinetic-base {
+  @apply px-8 py-3 rounded-lg border-2 border-black font-bold transition-all active:translate-y-1 active:shadow-none animate-gradient;
+  box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+  background-size: 200% 200%;
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .btn-primary {
+    @apply w-full bg-gradient-to-r from-secondary via-accent to-secondary animate-gradient text-white py-4 px-6 rounded-full font-semibold text-lg flex items-center justify-between transition-all hover:opacity-90 active:scale-[0.98] shadow-sm;
+    background-size: 200% 200%;
+  }
+  .btn-icon {
+    @apply w-10 h-10 bg-primary rounded-full flex items-center justify-center text-white;
+  }
+  .bg-size-200 {
+    background-size: 200% 200%;
+  }
+
+  .btn-kinetic-berry {
+    @apply btn-kinetic-base bg-gradient-to-r from-kinetic-berry via-accent to-kinetic-berry text-white hover:opacity-90;
+  }
+  
+  .btn-kinetic-white {
+    @apply btn-kinetic-base bg-gradient-to-r from-white via-gray-100 to-white text-black hover:bg-gray-50;
+  }
+}
+
+body {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  background-color: #0F1115;
+  color: white;
+}
